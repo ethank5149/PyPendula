@@ -7,9 +7,41 @@ from functools import partial
 import dill
 
 
+rng = np.random.default_rng()
+# plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'  # Linux
+# plt.rcParams['animation.ffmpeg_path'] = 'C://ffmpeg'  # Windows
+plt.rcParams['animation.ffmpeg_path'] = 'ffmpeg'  # Local
+dill.settings['recurse'] = True
+
+## Read these from external json?
+RAND_PARAMS = {
+    'rand_q_param_1' : 4.0,
+    'rand_q_param_2' : 1.5,
+    'rand_p_param_1' : 0.0,
+    'rand_p_param_2' : 16.0,
+}
+DEFAULT_PARAMS = {
+    'l1' : 1. / 3.,
+    'l2' : 1. / 3.,
+    'l3' : 1. / 3.,
+    'm1' : 1. / 3.,
+    'm2' : 1. / 3.,
+    'm3' : 1. / 3.,
+    'g' : 9.80665,
+}
+DEFAULT_ICS = np.array([
+    -np.pi / 6, 
+    0., 
+    -np.pi / 5, 
+    0., 
+    -np.pi / 4, 
+    0.
+])
+
+
 ## Inspired by stackoverflow user greenstick's comment: 
 ## https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
-def printProgressBar (
+def progress_bar (
         frame,                      # (Required): current frame (Int)
         total,                      # (Required): total frames (Int)
         prefix = 'Saving frames:',  # (Optional): prefix string (Str)
@@ -27,38 +59,6 @@ def printProgressBar (
     if iteration == total:
         print()
 
-
-rng = np.random.default_rng()
-plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
-dill.settings['recurse'] = True
-
-RAND_PARAMS = {
-    'rand_q_param_1' : 4.0,
-    'rand_q_param_2' : 1.5,
-    'rand_p_param_1' : 0.0,
-    'rand_p_param_2' : 16.0,
-}
-
-DEFAULT_PARAMS = {
-    'l1' : 1. / 3.,
-    'l2' : 1. / 3.,
-    'l3' : 1. / 3.,
-    'm1' : 1. / 3.,
-    'm2' : 1. / 3.,
-    'm3' : 1. / 3.,
-    'g' : 9.80665,
-}
-
-DEFAULT_ICS = np.array([
-    -np.pi / 6, 
-    0., 
-    -np.pi / 5, 
-    0., 
-    -np.pi / 4, 
-    0.
-])
-
-
 def gen_rand_ics(
     rand_q_param_1=RAND_PARAMS['rand_q_param_1'],
     rand_p_param_1=RAND_PARAMS['rand_p_param_1'],
@@ -73,21 +73,17 @@ def gen_rand_ics(
         np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
         np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
     ])
-
-
-RAND_ICS = gen_rand_ics()
-
                                 
-def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
-    print('Checking for cached EOM solution... ', end='', flush=True)
+def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
+    print('\nChecking for cached EOM solution... ', end='', flush=True)
     try:
-        ode3 = dill.load(open("./pypendula-n3", "rb"))
+        ode3 = dill.load(open("./pypendula_n3", "rb"))
         print('Done! (Solution found)')
     except:
         print('Done! (None found)')
-        print('Solving symbolic problem from scratch... ', end='', flush=True)
         ##################################################################################
-        # Symbolic Problem Set-Up                                                        #
+        print('Solving symbolic problem from scratch... ', end='', flush=True)
+
         t, l1, l2, l3, m1, m2, m3, g = sp.symbols('t l1 l2 l3 m1 m2 m3 g')               #
         q1, p1, a1 = sp.Function('q_1')(t), sp.Function('p_1')(t), sp.Function('a_1')(t) #
         q2, p2, a2 = sp.Function('q_2')(t), sp.Function('p_2')(t), sp.Function('a_2')(t) #
@@ -129,19 +125,20 @@ def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
         ]                                                                                #
         n3system = sp.solve(simplifiedEL, a1, a2, a3)                                    #
         print('Done!')                                                                   #
-                                                                                         #
-        print('Creating numerical EOM solution and caching for later... ',               #
+##########################################################################################
+
+##########################################################################################
+        print('Caching for later... ',                                                   #
               end='', flush=True)                                                        #
         ode3 = sp.utilities.lambdify(                                                    #
             [t, [q1, p1, q2, p2, q3, p3], l1, l2, l3, m1, m2, m3, g],                    #
             [p1, n3system[a1], p2, n3system[a2], p3, n3system[a3]]                       #
         )                                                                                #
-        dill.dump(ode3, open("pypendula-n3", "wb"))                                      #
+        dill.dump(ode3, open("pypendula_n3", "wb"))                                      #
         print('Done!')                                                                   #
-        ##################################################################################
+##########################################################################################
 
-    ## Once the ODE is generated, we're ready to solve the problem numerically
-    ###########################################################################################
+###############################################################################################
     print('Solving numerical EOM... ', end='', flush=True)                                    #
     frames = tf * fps                                                                         #
     dt = tf / frames                                                                          #
@@ -160,8 +157,9 @@ def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
     x3 = x2 + l3 * np.sin(q3)                                                                 #
     y3 = y2 - l3 * np.cos(q3)                                                                 #
     print('Done!')                                                                            #
-                                                                                              #
-                                                                                              #
+###############################################################################################
+
+###############################################################################################
     if animate:  # Pass in False to just save results to file, for example                    #
         print('Creating animation... ', end='\n', flush=True)                                 #
         fig, (ax1, ax2) = plt.subplots(1, 2, squeeze=True, figsize=(20,10))                   #
@@ -220,12 +218,9 @@ def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
                                                                                               #
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
-###############################################################################################
-
-###############################################################################################
         anim.save(                                                                       #
-            './resources/pypendula-n3-[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
-            progress_callback = printProgressBar,
+            './resources/pypendula_n3_[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
+            progress_callback = progress_bar,
             metadata=dict(title='PyPendula', artist='Ethan Knox')
             )                                                                                 #
         plt.close()                                                                           #

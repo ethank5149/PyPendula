@@ -1,4 +1,7 @@
 *.exe
+/__pycache__
+/ffmpeg
 /resources
+
 /!example.gif
 /!example.mp4
