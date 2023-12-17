@@ -1,4 +1,4 @@
 # PyPendula
 #### Primary source code repository for PyPendula
 
-![Example](./resources/example.mp4)
+<video src="./resources/example.mp4" autoplay loop muted></video>
