@@ -187,7 +187,7 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
         anim.save(                                                                            #
-            './results/pypendula-n3-[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4'      #
+            './resources/pypendula-n3-[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4'    #
         )                                                                                     #
         plt.close()                                                                           #
     return sol, [x1, y1, x2, y2, x3, y3]                                                      #
