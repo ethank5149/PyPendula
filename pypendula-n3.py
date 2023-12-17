@@ -220,8 +220,6 @@ def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
                                                                                               #
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
-        # gifwriter = anim.PillowWriter(fps=fps, metadata=dict(title='PyPendula', artist='Ethan Knox'))
-        # mp4writer = anim.FFMpegWriter(fps=fps, metadata=dict(title='PyPendula', artist='Ethan Knox'))
 ###############################################################################################
 
 ###############################################################################################
