@@ -1,2 +1,4 @@
 *.exe
-/results
+/resources
+/!example.gif
+/!example.mp4

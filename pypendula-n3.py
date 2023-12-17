@@ -5,11 +5,39 @@ import matplotlib.animation as animation
 from scipy.integrate import solve_ivp
 from functools import partial
 import dill
-from tqdm import trange
+
+
+## Inspired by stackoverflow user greenstick's comment: 
+## https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
+def printProgressBar (
+        frame,                      # (Required): current frame (Int)
+        total,                      # (Required): total frames (Int)
+        prefix = 'Saving frames:',  # (Optional): prefix string (Str)
+        suffix = '',                # (Optional): suffix string (Str)
+        decimals = 1,               # (Optional): positive number of decimals in percent complete (Int)        
+        length = 100,               # (Optional): character length of bar (Int)
+        fill = '█',                 # (Optional): bar fill character (Str)
+        printEnd = "\r"             # (Optional): end character (e.g. "\r", "\r\n") (Str)
+        ):
+    iteration = frame + 1
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))  # f"{100 * (iteration / float(total)):.1f}"
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
+    if iteration == total:
+        print()
 
 
 rng = np.random.default_rng()
+plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
 dill.settings['recurse'] = True
+
+RAND_PARAMS = {
+    'rand_q_param_1' : 4.0,
+    'rand_q_param_2' : 1.5,
+    'rand_p_param_1' : 0.0,
+    'rand_p_param_2' : 16.0,
+}
 
 DEFAULT_PARAMS = {
     'l1' : 1. / 3.,
@@ -30,34 +58,34 @@ DEFAULT_ICS = np.array([
     0.
 ])
 
-RAND_PARAMS = {
-    'rand_q_param_1' : 4.0,
-    'rand_q_param_2' : 1.5,
-    'rand_p_param_1' : 0.0,
-    'rand_p_param_2' : 16.0,
-}
 
-
-def rand_ics(
+def gen_rand_ics(
     rand_q_param_1=RAND_PARAMS['rand_q_param_1'],
     rand_p_param_1=RAND_PARAMS['rand_p_param_1'],
     rand_q_param_2=RAND_PARAMS['rand_q_param_2'],
-    rand_p_param_2=RAND_PARAMS['rand_p_param_2'],
-    repeats=1):
-    return np.vstack([  # There is likely a smarter way to generate this random data using numpy, this will do.
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random(size=repeats) - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random(size=repeats) - rand_p_param_2, -1),
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random(size=repeats) - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random(size=repeats) - rand_p_param_2, -1),
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random(size=repeats) - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random(size=repeats) - rand_p_param_2, -1),
-    ]).T
-    
+    rand_p_param_2=RAND_PARAMS['rand_p_param_2']
+    ):
+    return np.asarray([  # There is likely a smarter way to generate this random data using numpy, this will do.
+        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
+        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
+        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
+        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
+        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
+        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
+    ])
 
-def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
-    try:  # Check the current directory for a previously cached result
+
+RAND_ICS = gen_rand_ics()
+
+                                
+def main(params=DEFAULT_PARAMS, ics=RAND_ICS, tf=15, fps=120, animate=True):
+    print('Checking for cached EOM solution... ', end='', flush=True)
+    try:
         ode3 = dill.load(open("./pypendula-n3", "rb"))
-    except:  # Solve it from scratch and cache the result for later
+        print('Done! (Solution found)')
+    except:
+        print('Done! (None found)')
+        print('Solving symbolic problem from scratch... ', end='', flush=True)
         ##################################################################################
         # Symbolic Problem Set-Up                                                        #
         t, l1, l2, l3, m1, m2, m3, g = sp.symbols('t l1 l2 l3 m1 m2 m3 g')               #
@@ -85,7 +113,6 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
             p3.diff(t) : a3                                                              #
         }).simplify()                                                                    #
                                                                                          #
-        # Symbolic Problem Solution                                                      #
         ELeqns = [  # Euler-Lagrange Equations                                           #
             L.diff(q) - L.diff(p).diff(t) for                                            #
             q,p in zip([q1, q2, q3], [p1, p2, p3])                                       #
@@ -101,66 +128,73 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
             }).simplify() for ELeqn in ELeqns                                            #
         ]                                                                                #
         n3system = sp.solve(simplifiedEL, a1, a2, a3)                                    #
+        print('Done!')                                                                   #
                                                                                          #
-        # Numerical Problem Set-Up                                                       #
+        print('Creating numerical EOM solution and caching for later... ',               #
+              end='', flush=True)                                                        #
         ode3 = sp.utilities.lambdify(                                                    #
             [t, [q1, p1, q2, p2, q3, p3], l1, l2, l3, m1, m2, m3, g],                    #
             [p1, n3system[a1], p2, n3system[a2], p3, n3system[a3]]                       #
         )                                                                                #
-        dill.dump(ode3, open("pypendula-n3", "wb"))  # cache the resulting ode           #
+        dill.dump(ode3, open("pypendula-n3", "wb"))                                      #
+        print('Done!')                                                                   #
         ##################################################################################
 
     ## Once the ODE is generated, we're ready to solve the problem numerically
-    ######################################################################################
-    frames = tf * fps                                                                    #
-    dt = tf / frames                                                                     #
-    t_eval = np.linspace(0, tf, frames)                                                  #
-                                                                                         #
-    ode = partial(ode3, **params)                                                        #
-    sol = solve_ivp(ode, [0, tf], ics, t_eval=t_eval)                                    #
-                                                                                         #
-    # Translating coordinates for convenience                                            #
-    q1, p1, q2, p2, q3, p3 = sol.y                                                       #
-    l1, l2, l3 = params['l1'], params['l2'], params['l3']                                #
-    x1 =      l1 * np.sin(q1)                                                            #
-    y1 =    - l1 * np.cos(q1)                                                            #
-    x2 = x1 + l2 * np.sin(q2)                                                            #
-    y2 = y1 - l2 * np.cos(q2)                                                            #
-    x3 = x2 + l3 * np.sin(q3)                                                            #
-    y3 = y2 - l3 * np.cos(q3)                                                            #
-                                                                                         #
-    if animate:  # Pass in False to just save results to file, for example               #
-        fig, (ax1, ax2) = plt.subplots(1, 2, squeeze=True, figsize=(20,10))              #
-        fig.suptitle('PyPendula-N3\nWritten by: Ethan Knox')                             #
-        # ax1.set_title("")                                                                #
-        ax1.set_aspect('equal')                                                          #
-        ax1.set_xlim((-1.15 * (l1 + l2 + l3), 1.15 * (l1 + l2 + l3)))                    #
-        ax1.set_ylim((-1.15 * (l1 + l2 + l3), 1.15 * (l1 + l2 + l3)))                    #
-        ax1.set_xlabel('X [m]')                                                          #
-        ax1.set_ylabel('Y [m]')                                                          #
-        ax2.set_xlabel(r'$q$ [rad]')                                                     #
-        ax2.set_ylabel(r'$p$ [rad]/[s]')                                                 #
-        # ax2.yaxis.tick_right()                                                           #
-                                                                                         #
-        ax2.plot(q1, p1, lw=1.5, color='red', alpha=0.5)                                 #
-        ax2.plot(q2, p2, lw=1.5, color='blue', alpha=0.5)                                #
-        ax2.plot(q3, p3, lw=1.5, color='green', alpha=0.5)                               #
-                                                                                         #
-        bbox_props = dict(boxstyle='round', alpha=0., facecolor='white')                 #
-        label = ax1.text(0.02, 0.98, '', transform=ax1.transAxes,                        #
-                         verticalalignment='top', bbox=bbox_props)                       #
-        negliblemass, = ax1.plot([], [], '-', lw=1.5, color='black')                     #
-        mass1, = ax1.plot([], [], 'o', lw=2, color='red',                                #
-                          label=rf'$q_1(0)={ics[0]:.6f}, p_1(0)={ics[1]:.6f}$')          #
-        mass2, = ax1.plot([], [], 'o', lw=2, color='blue',                               #
-                          label=rf'$q_2(0)={ics[2]:.6f}, p_2(0)={ics[3]:.6f}$')          #
-        mass3, = ax1.plot([], [], 'o', lw=2, color='green',                              #
-                          label=rf'$q_3(0)={ics[4]:.6f}, p_3(0)={ics[5]:.6f}$')          #
-                                                                                         #
-        point1, = ax2.plot([], [], 'o', lw=3, color='red')                               #
-        point2, = ax2.plot([], [], 'o', lw=3, color='blue')                              #
-        point3, = ax2.plot([], [], 'o', lw=3, color='green')                             #
-        ax1.legend()                                                                     #
+    ###########################################################################################
+    print('Solving numerical EOM... ', end='', flush=True)                                    #
+    frames = tf * fps                                                                         #
+    dt = tf / frames                                                                          #
+    t_eval = np.linspace(0, tf, frames)                                                       #
+                                                                                              #
+    ode = partial(ode3, **params)                                                             #
+    sol = solve_ivp(ode, [0, tf], ics, t_eval=t_eval)                                         #
+                                                                                              #
+    # Translating coordinates for convenience                                                 #
+    q1, p1, q2, p2, q3, p3 = sol.y                                                            #
+    l1, l2, l3 = params['l1'], params['l2'], params['l3']                                     #
+    x1 =      l1 * np.sin(q1)                                                                 #
+    y1 =    - l1 * np.cos(q1)                                                                 #
+    x2 = x1 + l2 * np.sin(q2)                                                                 #
+    y2 = y1 - l2 * np.cos(q2)                                                                 #
+    x3 = x2 + l3 * np.sin(q3)                                                                 #
+    y3 = y2 - l3 * np.cos(q3)                                                                 #
+    print('Done!')                                                                            #
+                                                                                              #
+                                                                                              #
+    if animate:  # Pass in False to just save results to file, for example                    #
+        print('Creating animation... ', end='\n', flush=True)                                 #
+        fig, (ax1, ax2) = plt.subplots(1, 2, squeeze=True, figsize=(20,10))                   #
+        fig.suptitle('PyPendula-N3\nWritten by: Ethan Knox')                                  #
+        # ax1.set_title("")                                                                   #
+        ax1.set_aspect('equal')                                                               #
+        ax1.set_xlim((-1.15 * (l1 + l2 + l3), 1.15 * (l1 + l2 + l3)))                         #
+        ax1.set_ylim((-1.15 * (l1 + l2 + l3), 1.15 * (l1 + l2 + l3)))                         #
+        ax1.set_xlabel('X [m]')                                                               #
+        ax1.set_ylabel('Y [m]')                                                               #
+        ax2.set_xlabel(r'$q$ [rad]')                                                          #
+        ax2.set_ylabel(r'$p$ [rad]/[s]')                                                      #
+        # ax2.yaxis.tick_right()                                                              #
+                                                                                              #
+        ax2.plot(q1, p1, lw=1.5, color='red', alpha=0.5)                                      #
+        ax2.plot(q2, p2, lw=1.5, color='blue', alpha=0.5)                                     #
+        ax2.plot(q3, p3, lw=1.5, color='green', alpha=0.5)                                    #
+                                                                                              #
+        bbox_props = dict(boxstyle='round', alpha=0., facecolor='white')                      #
+        label = ax1.text(0.02, 0.98, '', transform=ax1.transAxes,                             #
+                         verticalalignment='top', bbox=bbox_props)                            #
+        negliblemass, = ax1.plot([], [], '-', lw=1.5, color='black')                          #
+        mass1, = ax1.plot([], [], 'o', lw=2, color='red',                                     #
+                          label=rf'$q_1(0)={ics[0]:.6f}, p_1(0)={ics[1]:.6f}$')               #
+        mass2, = ax1.plot([], [], 'o', lw=2, color='blue',                                    #
+                          label=rf'$q_2(0)={ics[2]:.6f}, p_2(0)={ics[3]:.6f}$')               #
+        mass3, = ax1.plot([], [], 'o', lw=2, color='green',                                   #
+                          label=rf'$q_3(0)={ics[4]:.6f}, p_3(0)={ics[5]:.6f}$')               #
+                                                                                              #
+        point1, = ax2.plot([], [], 'o', lw=3, color='red')                                    #
+        point2, = ax2.plot([], [], 'o', lw=3, color='blue')                                   #
+        point3, = ax2.plot([], [], 'o', lw=3, color='green')                                  #
+        ax1.legend()                                                                          #
                                                                                               #
                                                                                               #
         def animate(i):                                                                       #
@@ -186,20 +220,21 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
                                                                                               #
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
-        anim.save(                                                                            #
-            './resources/pypendula-n3-[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4'    #
-        )                                                                                     #
-        plt.close()                                                                           #
-    return sol, [x1, y1, x2, y2, x3, y3]                                                      #
+        # gifwriter = anim.PillowWriter(fps=fps, metadata=dict(title='PyPendula', artist='Ethan Knox'))
+        # mp4writer = anim.FFMpegWriter(fps=fps, metadata=dict(title='PyPendula', artist='Ethan Knox'))
 ###############################################################################################
 
-
-def multirun(repeats=12):
-    multi_ics = rand_ics(repeats=repeats)
-    for i in trange(repeats):
-        main(ics=multi_ics[i])
+###############################################################################################
+        anim.save(                                                                       #
+            './resources/pypendula-n3-[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
+            progress_callback = printProgressBar,
+            metadata=dict(title='PyPendula', artist='Ethan Knox')
+            )                                                                                 #
+        plt.close()                                                                           #
+        print('Done!')                                                                        #
+###############################################################################################
+    return sol, [x1, y1, x2, y2, x3, y3]
 
 
 if __name__ == "__main__":
-    multirun()
-    # main()
+    main()
