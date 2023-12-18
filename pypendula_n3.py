@@ -42,14 +42,14 @@ DEFAULT_ICS = np.array([
 ## Inspired by stackoverflow user greenstick's comment: 
 ## https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
 def progress_bar (
-        frame,                      # (Required): current frame (Int)
-        total,                      # (Required): total frames (Int)
-        prefix = 'Saving frames:',  # (Optional): prefix string (Str)
-        suffix = '',                # (Optional): suffix string (Str)
-        decimals = 1,               # (Optional): positive number of decimals in percent complete (Int)        
-        length = 100,               # (Optional): character length of bar (Int)
-        fill = '█',                 # (Optional): bar fill character (Str)
-        printEnd = "\r"             # (Optional): end character (e.g. "\r", "\r\n") (Str)
+        frame,                         # (Required): current frame (Int)
+        total,                         # (Required): total frames (Int)
+        prefix = 'Saving animation:',  # (Optional): prefix string (Str)
+        suffix = '',                   # (Optional): suffix string (Str)
+        decimals = 1,                  # (Optional): positive number of decimals in percent complete (Int)        
+        length = 100,                  # (Optional): character length of bar (Int)
+        fill = '█',                    # (Optional): bar fill character (Str)
+        printEnd = "\r"                # (Optional): end character (e.g. "\r", "\r\n") (Str)
         ):
     iteration = frame + 1
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))  # f"{100 * (iteration / float(total)):.1f}"
@@ -74,15 +74,15 @@ def gen_rand_ics(
         np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
     ])
                                 
-def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
-    print('\nChecking for cached EOM solution... ', end='', flush=True)
+def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, run=0, animate=True, verbose=True):
+    if verbose: print('\nChecking for cached EOM solution... ', end='', flush=True)
     try:
         ode3 = dill.load(open("./pypendula_n3", "rb"))
-        print('Done! (Solution found)')
+        if verbose: print('Done! (Solution found)')
     except:
-        print('Done! (None found)')
+        if verbose: print('Done! (None found)')
         ##################################################################################
-        print('Solving symbolic problem from scratch... ', end='', flush=True)
+        if verbose: print('Solving symbolic problem from scratch... ', end='', flush=True)
 
         t, l1, l2, l3, m1, m2, m3, g = sp.symbols('t l1 l2 l3 m1 m2 m3 g')               #
         q1, p1, a1 = sp.Function('q_1')(t), sp.Function('p_1')(t), sp.Function('a_1')(t) #
@@ -124,22 +124,22 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
             }).simplify() for ELeqn in ELeqns                                            #
         ]                                                                                #
         n3system = sp.solve(simplifiedEL, a1, a2, a3)                                    #
-        print('Done!')                                                                   #
+        if verbose: print('Done!')                                                                   #
 ##########################################################################################
 
 ##########################################################################################
-        print('Caching for later... ',                                                   #
+        if verbose: print('Caching for later... ',                                                   #
               end='', flush=True)                                                        #
         ode3 = sp.utilities.lambdify(                                                    #
             [t, [q1, p1, q2, p2, q3, p3], l1, l2, l3, m1, m2, m3, g],                    #
             [p1, n3system[a1], p2, n3system[a2], p3, n3system[a3]]                       #
         )                                                                                #
         dill.dump(ode3, open("pypendula_n3", "wb"))                                      #
-        print('Done!')                                                                   #
+        if verbose: print('Done!')                                                                   #
 ##########################################################################################
 
 ###############################################################################################
-    print('Solving numerical EOM... ', end='', flush=True)                                    #
+    if verbose: print('Solving numerical EOM... ', end='', flush=True)                                    #
     frames = tf * fps                                                                         #
     dt = tf / frames                                                                          #
     t_eval = np.linspace(0, tf, frames)                                                       #
@@ -156,13 +156,13 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
     y2 = y1 - l2 * np.cos(q2)                                                                 #
     x3 = x2 + l3 * np.sin(q3)                                                                 #
     y3 = y2 - l3 * np.cos(q3)                                                                 #
-    print('Done!')                                                                            #
+    if verbose: print('Done!')                                                                            #
 ###############################################################################################
 
 ###############################################################################################
     if animate:  # Pass in False to just save results to file, for example                    #
-        print('Creating animation... ', end='\n', flush=True)                                 #
-        fig, (ax1, ax2) = plt.subplots(1, 2, squeeze=True, figsize=(20,10))                   #
+        if verbose: print('Creating animation... ', end='\n', flush=True)                                 #
+        fig, (ax1, ax2) = plt.subplots(1, 2, squeeze=True, figsize=(19.20,10.80))             #
         fig.suptitle('PyPendula-N3\nWritten by: Ethan Knox')                                  #
         # ax1.set_title("")                                                                   #
         ax1.set_aspect('equal')                                                               #
@@ -219,12 +219,17 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, animate=True):
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
         anim.save(                                                                       #
-            './resources/pypendula_n3_[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
+            f'./resources/pypendula_n3_{str(run).zfill(2)}.mp4',
+            # './resources/pypendula_n3_[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
             progress_callback = progress_bar,
-            metadata=dict(title='PyPendula', artist='Ethan Knox')
+            metadata=dict(
+                title='PyPendula', 
+                artist='Ethan Knox',
+                comment="ics=[" + ','.join((f'{ic:.6f}' for ic in ics)) + "]"
+                )
             )                                                                                 #
         plt.close()                                                                           #
-        print('Done!')                                                                        #
+        if verbose: print('Done!')                                                                        #
 ###############################################################################################
     return sol, [x1, y1, x2, y2, x3, y3]
 
