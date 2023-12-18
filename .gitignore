@@ -3,15 +3,12 @@
 /__pycache__
 /ffmpeg
 
-!/resources/pypendula_n3_00.mp4
-!/resources/pypendula_n3_01.mp4
-!/resources/pypendula_n3_02.mp4
-!/resources/pypendula_n3_03.mp4
-!/resources/pypendula_n3_04.mp4
-!/resources/pypendula_n3_05.mp4
-!/resources/pypendula_n3_06.mp4
-!/resources/pypendula_n3_07.mp4
-!/resources/pypendula_n3_08.mp4
-!/resources/pypendula_n3_09.mp4
-!/resources/pypendula_n3_10.mp4
-!/resources/pypendula_n3_11.mp4
+!/resources/pypendula_n3_ex1.mp4
+!/resources/pypendula_n3_ex2.mp4
+!/resources/pypendula_n3_ex3.mp4
+!/resources/pypendula_n3_ex4.mp4
+!/resources/pypendula_n3_ex5.mp4
+!/resources/pypendula_n3_ex6.mp4
+!/resources/pypendula_n3_ex7.mp4
+!/resources/pypendula_n3_ex8.mp4
+!/resources/pypendula_n3_ex9.mp4

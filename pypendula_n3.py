@@ -8,17 +8,14 @@ import dill
 
 
 rng = np.random.default_rng()
-# plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'  # Linux
-# plt.rcParams['animation.ffmpeg_path'] = 'C://ffmpeg'  # Windows
-plt.rcParams['animation.ffmpeg_path'] = 'ffmpeg'  # Local
 dill.settings['recurse'] = True
+plt.rcParams['animation.ffmpeg_path'] = 'ffmpeg'          # Local
+##                                      '/usr/bin/ffmpeg' # Linux
+##                                      'C://ffmpeg'      # Windows
 
-## Read these from external json?
 RAND_PARAMS = {
-    'rand_q_param_1' : 4.0,
-    'rand_q_param_2' : 1.5,
-    'rand_p_param_1' : 0.0,
-    'rand_p_param_2' : 16.0,
+    'rand_q_param' : 1 / 3.,  # Ranges from (0.0, 1.0), damping the random initial angles about zero 
+    'rand_p_param' : 1 / 12.,  # Has similar 'damping' effect on initial omegas, although unbounded
 }
 DEFAULT_PARAMS = {
     'l1' : 1. / 3.,
@@ -31,11 +28,11 @@ DEFAULT_PARAMS = {
 }
 DEFAULT_ICS = np.array([
     -np.pi / 6, 
-    0., 
+     np.pi / 16, 
     -np.pi / 5, 
-    0., 
+     np.pi / 16, 
     -np.pi / 4, 
-    0.
+     np.pi / 16
 ])
 
 
@@ -60,21 +57,19 @@ def progress_bar (
         print()
 
 def gen_rand_ics(
-    rand_q_param_1=RAND_PARAMS['rand_q_param_1'],
-    rand_p_param_1=RAND_PARAMS['rand_p_param_1'],
-    rand_q_param_2=RAND_PARAMS['rand_q_param_2'],
-    rand_p_param_2=RAND_PARAMS['rand_p_param_2']
+    rand_q_param=RAND_PARAMS['rand_q_param'],
+    rand_p_param=RAND_PARAMS['rand_p_param']
     ):
-    return np.asarray([  # There is likely a smarter way to generate this random data using numpy, this will do.
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
-        np.pi * np.power(rand_q_param_1 + 2 * rand_q_param_2 * rng.random() - rand_q_param_2, -1),
-        np.pi * np.power(rand_p_param_1 + 2 * rand_p_param_2 * rng.random() - rand_p_param_2, -1),
+    return np.asarray([
+        rand_q_param * np.pi * (2 * rng.random() - 1),
+        rand_p_param * np.pi * (2 * rng.random() - 1),
+        rand_q_param * np.pi * (2 * rng.random() - 1),
+        rand_p_param * np.pi * (2 * rng.random() - 1),
+        rand_q_param * np.pi * (2 * rng.random() - 1),
+        rand_p_param * np.pi * (2 * rng.random() - 1),
     ])
                                 
-def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, run=0, animate=True, verbose=True):
+def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=10, fps=60, run=0, animate=True, verbose=True):
     if verbose: print('\nChecking for cached EOM solution... ', end='', flush=True)
     try:
         ode3 = dill.load(open("./pypendula_n3", "rb"))
@@ -219,8 +214,8 @@ def main(params=DEFAULT_PARAMS, ics=DEFAULT_ICS, tf=15, fps=120, run=0, animate=
                                                                                               #
         anim = animation.FuncAnimation(fig, animate, len(t_eval), interval=dt * 1000)         #
         anim.save(                                                                       #
-            f'./resources/pypendula_n3_{str(run).zfill(2)}.mp4',
-            # './resources/pypendula_n3_[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
+            # f'./resources/pypendula_n3_{str(run).zfill(4)}.mp4',
+            './resources/pypendula_n3_ics=[' + ','.join((f'{ic:.6f}' for ic in ics)) + '].mp4',
             progress_callback = progress_bar,
             metadata=dict(
                 title='PyPendula', 
