@@ -2,6 +2,7 @@
 *.mp4
 /__pycache__
 /ffmpeg
+dev.py
 
 !/resources/pypendula_n3_ex1.mp4
 !/resources/pypendula_n3_ex2.mp4
@@ -11,4 +12,3 @@
 !/resources/pypendula_n3_ex6.mp4
 !/resources/pypendula_n3_ex7.mp4
 !/resources/pypendula_n3_ex8.mp4
-!/resources/pypendula_n3_ex9.mp4
