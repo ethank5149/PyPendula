@@ -83,24 +83,11 @@ def solve_symbolic(log_level='info', N=3):
     for i in range(1, N):
         x.append(x[i - 1] + l[i] * sp.sin(q[i]))
         y.append(y[i - 1] - l[i] * sp.cos(q[i]))
-
-    # x1 =      l[0] * sp.sin(q[0])                                                        #
-    # x2 = x1 + l[1] * sp.sin(q[1])                                                        #
-    # x3 = x2 + l[2] * sp.sin(q[2])                                                        #
-
-    # y1 =    - l[0] * sp.cos(q[0])                                                        #
-    # y2 = y1 - l[1] * sp.cos(q[1])                                                        #
-    # y3 = y2 - l[2] * sp.cos(q[2])                                                        #
     
     v_sqr = [_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)]
-    # v1_sqr = x1.diff(t) ** 2 + y1.diff(t) ** 2
-    # v2_sqr = x2.diff(t) ** 2 + y2.diff(t) ** 2
-    # v3_sqr = x3.diff(t) ** 2 + y3.diff(t) ** 2
 
     V = g * (m[0] * y[0] + m[1] * y[1] + m[2] * y[2])
-    # V = m[0] * g * y1 + m[1] * g * y2 + m[2] * g * y3
     T = m[0] * v_sqr[0] / 2 + m[1] * v_sqr[1] / 2 + m[2] * v_sqr[2] / 2
-    # T = m[0] * v1_sqr / 2 + m[1] * v2_sqr / 2 + m[2] * v3_sqr / 2
     L = T - V
     Kinetic, Potential, H = T, V, T + V
 
@@ -109,17 +96,6 @@ def solve_symbolic(log_level='info', N=3):
     EL = LM.form_lagranges_equations()
     if log_level == 'debug': print('Done!')
     if log_level == 'debug': print("DEBUG: Solving Lagrange's Equations for EOM... ", end='', flush=True)
-
-    # sEL = [eqn.subs({
-    #     q[0].diff(t) : p[0],
-    #     q[1].diff(t) : p[1],
-    #     q[2].diff(t) : p[2],
-    #     p[0].diff(t) : a[0],
-    #     p[1].diff(t) : a[1],
-    #     p[2].diff(t) : a[2]
-    #     }).simplify() for eqn in EL
-    #     ]
-    # EOM = sp.solve(sEL, a)
 
     EOM = sp.solve(EL, a)
     EOMsoln = Matrix([EOM[a[_]] for _ in range(len(a))])
