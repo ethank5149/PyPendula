@@ -84,7 +84,7 @@ class PyPendula:
 
         ###################
         x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
-        for i in range(1, N):
+        for i in range(1, self.N):
             x.append(x[i - 1] + l * sp.sin(q[i]))
             y.append(y[i - 1] - l * sp.cos(q[i]))
     
