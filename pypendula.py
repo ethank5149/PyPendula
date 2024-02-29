@@ -8,30 +8,11 @@ from sympy.matrices import Matrix
 from sympy.physics.mechanics import dynamicsymbols, Lagrangian, LagrangesMethod, ReferenceFrame, Point, Particle
 from scipy.integrate import solve_ivp
 from functools import partial
-import json
 import dill
 
 
 dill.settings['recurse'] = True
 rng = np.random.default_rng()
-
-try:
-    pypendula_json = open('pypendula.json')
-    pypendula_params = json.load(pypendula_json)
-except:
-    print("'pypendula.json' file missing from root directory, generating minimum working example")
-    pypendula_params = {
-        "m" : 1,
-        "l" : 1,
-        "g" : 9.807,
-        "alpha" : 3,
-        "t_f" : 30,
-        "n_t" : 100,
-        "fps" : 60,
-        "N" : 3,
-        "ics" : [-0.1, 0.0, 0.1, 0.0, 0.0, 0.0]
-        }
-    json.dumps(pypendula_params)
 
 
 ## Inspired by stackoverflow user greenstick's comment: 
@@ -57,17 +38,17 @@ def progress_bar (
 class PyPendula:
     def __init__(
             self, 
-            N=pypendula_params['N'], 
+            N=3, 
             params={
-                'm' : pypendula_params['m'],
-                'g' : pypendula_params['g'],
-                'l' : pypendula_params['l'],
+                'm' : 1,
+                'g' : 1,
+                'l' : 9.807,
             },
             ics = None,
-            alpha=pypendula_params['alpha'],
-            t_f=pypendula_params['t_f'],
-            n_t=pypendula_params['n_t'],
-            fps=pypendula_params['fps'],
+            alpha=3,
+            t_f=30,
+            n_t=100,
+            fps=60,
             ):
         self.params = params
         self.N = N
@@ -84,7 +65,7 @@ class PyPendula:
             ics_p = np.zeros(self.N)
             self.ics = np.hstack([ics_q, ics_p])
         else:
-            self.ics = pypendula_params['ics']
+            self.ics = ics
         
         self.ics_tag = 'ics=[' + ','.join((f'{ic:.4f}' for ic in self.ics)) + ']'
 
@@ -173,9 +154,10 @@ class PyPendula:
 
         def animate(i):
             mass0.set_data(
-        [0, x[0][i], x[1][i], x[2][i]],
-        [0, y[0][i], y[1][i], y[2][i]]
-        )
+                [0, x[0][i], x[1][i], x[2][i]],
+                [0, y[0][i], y[1][i], y[2][i]]
+                )
+            
             mass3.set_data([x[2][i]], [y[2][i]])
             mass2.set_data([x[1][i]], [y[1][i]])
             mass1.set_data([x[0][i]], [y[0][i]])
