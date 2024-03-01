@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.gridspec import GridSpec
 import matplotlib.animation as animation
-from matplotlib.patches import Arc, Circle
 
 import sympy as sp
 from sympy.matrices import Matrix
@@ -13,7 +13,7 @@ import dill
 
 dill.settings['recurse'] = True
 rng = np.random.default_rng()
-
+plt.rcParams['animation.ffmpeg_path'] = './ffmpeg/ffmpeg.exe'
 
 ## Inspired by stackoverflow user greenstick's comment: 
 ## https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
@@ -39,30 +39,52 @@ class PyPendula:
     def __init__(
             self, 
             N=3, 
-            params={
-                'm' : 1,
-                'g' : 1,
-                'l' : 9.807,
-            },
+            m=1,
+            l=1,
+            g=9.807,
             ics = None,
-            alpha=3,
-            t_f=30,
-            n_t=100,
+            alpha=6,
+            beta=12,
+            t_f=10,
             fps=60,
             ):
-        self.params = params
+        
+        if abs(alpha) < 1: alpha = 1
+        if alpha < 0: alpha = -alpha
+        if beta < 0: beta = -beta
+
         self.N = N
+        self.m = m
+        self.l = l
+        self.g = g
         self.alpha = alpha
+        self.beta = beta
         self.t_f = t_f
-        self.n_t = n_t
         self.fps = fps
 
+        self.params = {
+                'm' : self.m,
+                'g' : self.g,
+                'l' : self.l,
+            }
+
+        self.potential = None
+        self.kinetic = None
+        self.lagrangian = None
+        self.hamiltonian = None
+        self.soln_hamiltonian = None
         self.soln = None
         self.t_eval = None
+        self.n_dp = None
+        self.n_hamiltonian = None
+        self.ics_tag = None
 
+        self.set_ics(ics)
+        
+    def set_ics(self, ics=None):
         if ics is None:
             ics_q = rng.uniform(-np.pi / self.alpha, np.pi / self.alpha, size=self.N)
-            ics_p = np.zeros(self.N)
+            ics_p = rng.uniform(-np.pi / self.beta, np.pi / self.beta, size=self.N)  # np.zeros(self.N)
             self.ics = np.hstack([ics_q, ics_p])
         else:
             self.ics = ics
@@ -87,12 +109,14 @@ class PyPendula:
         x, y = Matrix(x), Matrix(y)
         ####################
 
-        # potential = -m * g * sum(y)
-        potential = m * g * sum(y)
-        kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        lagrangian = kinetic - potential
-        self.lagranges_method = LagrangesMethod(lagrangian, q)
+        self.potential = m * g * sum(y)
+        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+        self.lagrangian = self.kinetic - self.potential
+        self.lagranges_method = LagrangesMethod(self.lagrangian, q)
         self.euler_lagrange_eqns = self.lagranges_method.form_lagranges_equations()
+        
+        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+        
         self.eom = sp.simplify(self.lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
         self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
         self.numeric_dp = sp.utilities.lambdify([t, 
@@ -101,16 +125,26 @@ class PyPendula:
                                       [*p, *self.symbolic_dp])
         dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
 
+        self.numeric_hamiltonian = sp.utilities.lambdify([t, 
+                                       [*q, *p], 
+                                       m, g, l], 
+                                      self.hamiltonian)
+        dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
+
     def solve_numeric(self):
         try:
             self.numeric_dp = dill.load(open("./cache/pypendula_cached_soln_n{self.N}", "rb"))
+            self.numeric_hamiltonian = dill.load(open("./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
         except:
             self.solve_symbolic()
         
-        self.t_eval = np.linspace(0, self.t_f, self.n_t)
+        frames = self.t_f * self.fps
+        self.t_eval = np.linspace(0, self.t_f, frames)
         self.n_dp = partial(self.numeric_dp, **self.params)
+        self.n_hamiltonian = partial(self.numeric_hamiltonian, **self.params)
         self.soln = solve_ivp(self.n_dp, [0, self.t_f], self.ics, t_eval=self.t_eval)
-        return self.soln
+        self.soln_hamiltonian = self.n_hamiltonian(self.t_eval, self.soln.y)
+        return self.soln  # , self.soln_hamiltonian
 
     def simulate(self):
         assert self.N == 3
@@ -119,6 +153,9 @@ class PyPendula:
             self.solve_numeric()
 
         t, y = self.soln.t, self.soln.y
+        energy = self.soln_hamiltonian
+
+        energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
         q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
 
         x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
@@ -126,10 +163,14 @@ class PyPendula:
             x.append(x[i - 1] + self.params['l'] * np.sin(q[i]))
             y.append(y[i - 1] - self.params['l'] * np.cos(q[i]))
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 10))
+        fig = plt.figure(layout="constrained", figsize=(19.2, 10.80))
+        gs = GridSpec(2, 2, figure=fig)
+        ax3 = fig.add_subplot(gs[1, 1])
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax1 = fig.add_subplot(gs[:, 0])
 
         min_x, max_x = min([-3 * self.params['l'], np.min(x)]), max([3 * self.params['l'], np.max(x)])
-        min_y, max_y = max([-3 * self.params['l'], np.min(y)]), max([self.params['l'], np.max(y)])
+        min_y, max_y = max([-3 * self.params['l'], np.min(y)]), max([    self.params['l'], np.max(y)])
         ax1.set_xlim((1.15 * min_x, 1.15 * max_x))
         ax1.set_ylim((1.15 * min_y, 1.15 * max_y))
 
@@ -139,20 +180,28 @@ class PyPendula:
         ax1.set_ylabel(r'Y [m]')
         ax2.set_xlabel(r'$q$ [rad]')
         ax2.set_ylabel(r'$p$ [rad]/[s]')
+        ax3.set_ylabel(r'Energy Loss [%]')
+        ax3.set_xlabel(r'$t$ $[s]$')
 
+        pin, = ax1.plot(0, 0, 'o', markersize=6, color='black', zorder=10)
         mass0, = ax1.plot([], [], lw=3, color='darkgray')
-        mass1, = ax1.plot([], [], 'o', lw=2, color='red')
-        mass2, = ax1.plot([], [], 'o', lw=2, color='blue')
-        mass3, = ax1.plot([], [], 'o', lw=2, color='green')
+        mass1, = ax1.plot([], [], 'o', markersize=12, color='red')
+        mass2, = ax1.plot([], [], 'o', markersize=12, color='blue')
+        mass3, = ax1.plot([], [], 'o', markersize=12, color='green')
 
-        ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-        ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.5)
-        ax2.plot(q[2], p[2], lw=1.5, color='green', alpha=0.5)
-        point1, = ax2.plot([], [], 'o', lw=3, color='red')
-        point2, = ax2.plot([], [], 'o', lw=3, color='blue')
-        point3, = ax2.plot([], [], 'o', lw=3, color='green')
+        ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.75)
+        ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.75)
+        ax2.plot(q[2], p[2], lw=1.5, color='green', alpha=0.75)
+        point1, = ax2.plot([], [], 'o', markersize=6, color='red')
+        point2, = ax2.plot([], [], 'o', markersize=6, color='blue')
+        point3, = ax2.plot([], [], 'o', markersize=6, color='green')
+
+        ax3.plot(self.t_eval, energy_loss_percent, '-', lw=1.5, color='purple')
+        ax3.axhline(y=0, xmin=self.t_eval[0], xmax=self.t_eval[-1], linestyle='--', color='black')
+        energy_loss_plot, = ax3.plot([], [], 'o', markersize=6, color='purple', label='Total Energy')    
 
         def animate(i):
+            energy_loss_plot.set_data([self.t_eval[i]], [energy_loss_percent[i]])
             mass0.set_data(
                 [0, x[0][i], x[1][i], x[2][i]],
                 [0, y[0][i], y[1][i], y[2][i]]
@@ -164,9 +213,11 @@ class PyPendula:
             point3.set_data([q[2][i]], [p[2][i]])
             point2.set_data([q[1][i]], [p[1][i]])
             point1.set_data([q[0][i]], [p[0][i]])
-            return mass0, mass1, mass2, mass3, point1, point2, point3,
+            return mass0, mass1, mass2, mass3, point1, point2, point3, energy_loss_plot,
  
-        dt = self.t_f / self.n_t
+        
+        frames = self.t_f * self.fps
+        dt = self.t_f / frames
 
         anim = animation.FuncAnimation(fig, animate, len(self.t_eval), interval=dt * 1000, blit=True)
         anim.save(
@@ -175,44 +226,3 @@ class PyPendula:
         )
         plt.close()
         return anim
-
-
-    # def show_diagram(self):
-    #     assert self.N == 3
-
-    #     theta1, theta2, theta3, _, _, _ = self.ics
-    #     l = self.params['l']
-
-    #     fig, ax = plt.subplots(figsize=(10, 10))
-    #     ax.set_xlim([-3.0 * l, 3.0 * l])
-    #     ax.set_ylim([-3.5 * l, 3.0 * l])
-
-    #     x0, y0 =                       0,                       0
-    #     x1, y1 =      l * np.sin(theta1),    - l * np.cos(theta1)
-    #     x2, y2 = x1 + l * np.sin(theta2), y1 - l * np.cos(theta2)
-    #     x3, y3 = x2 + l * np.sin(theta3), y2 - l * np.cos(theta3)
-
-    #     ax.vlines([0, x1, x2], [y1, y2, y3], [0, y1, y2], linestyles='dashed', colors='black', zorder=1)
-    #     ax.hlines([y1, y2, y3], [x1, x1, x2], [0, x2, x3], linestyles='dashed', colors='black', zorder=1)
-
-    #     # Rods
-    #     ax.plot([x0, x1], [y0, y1], lw=3, color='darkgray')  # , lw=2 * r_l, color='blue',  zorder=4)
-    #     ax.plot([x1, x2], [y1, y2], lw=3, color='darkgray')  # , lw=2 * r_l, color='red',   zorder=3)
-    #     ax.plot([x2, x3], [y2, y3], lw=3, color='darkgray')  # , lw=2 * r_l, color='green', zorder=2)
-
-    #     # Masses
-    #     ax.add_patch(Circle([x1, y1], radius=l / 6, color='blue', label=r'$(x_1,y_1)$',  zorder=4))
-    #     ax.text(x1, y1, r'$m_1$', zorder=10)
-
-    #     ax.add_patch(Circle([x2, y2], radius=l / 6, color='red', label=r'$(x_2,y_2)$', zorder=3))
-    #     ax.text(x2, y2, r'$m_2$', zorder=10)
-
-    #     ax.add_patch(Circle([x3, y3], radius=l / 6, color='green', label=r'$(x_3,y_3)$', zorder=2))
-    #     ax.text(x3, y3, r'$m_3$', zorder=10)
-
-    #     # Pins
-    #     ax.add_patch(Circle(             [x0, y0], radius=l / 12, color='black',  zorder=4))
-        
-    #     # plt.legend()
-
-    #     return fig
