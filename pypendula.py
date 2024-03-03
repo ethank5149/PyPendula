@@ -7,6 +7,7 @@ import sympy as sp
 from sympy.matrices import Matrix
 from sympy.physics.mechanics import dynamicsymbols, Lagrangian, LagrangesMethod, ReferenceFrame, Point, Particle
 from scipy.integrate import solve_ivp
+from scipy.optimize import curve_fit
 from functools import partial
 import dill
 
@@ -20,7 +21,7 @@ plt.rcParams['animation.ffmpeg_path'] = './ffmpeg/ffmpeg.exe'
 def progress_bar (
         frame,                         # (Required): current frame (Int)
         total,                         # (Required): total frames (Int)
-        prefix = 'Saving animation:',  # (Optional): prefix string (Str)
+        prefix = 'Saving Animation:',  # (Optional): prefix string (Str)
         suffix = '',                   # (Optional): suffix string (Str)
         decimals = 1,                  # (Optional): positive number of decimals in percent complete (Int)        
         length = 100,                  # (Optional): character length of bar (Int)
@@ -40,7 +41,7 @@ class PyPendula:
             self, 
             N=3, 
             m=1,
-            l=1,
+            l=1 / 3.0,
             g=9.807,
             ics = None,
             alpha=6,
@@ -83,8 +84,11 @@ class PyPendula:
         
     def set_ics(self, ics=None):
         if ics is None:
-            ics_q = rng.uniform(-np.pi / self.alpha, np.pi / self.alpha, size=self.N)
-            ics_p = rng.uniform(-np.pi / self.beta, np.pi / self.beta, size=self.N)  # np.zeros(self.N)
+            # ics_q = rng.uniform(-np.pi / self.alpha, np.pi / self.alpha, size=self.N)
+            # ics_p = rng.uniform(-np.pi / self.beta, np.pi / self.beta, size=self.N)  # np.zeros(self.N)
+            ics_q = rng.uniform(0, np.pi / self.alpha, size=self.N)
+            ics_p = np.zeros(self.N)  # rng.uniform(0, np.pi / self.beta, size=self.N)  
+
             self.ics = np.hstack([ics_q, ics_p])
         else:
             self.ics = ics
@@ -92,44 +96,54 @@ class PyPendula:
         self.ics_tag = 'ics=[' + ','.join((f'{ic:.4f}' for ic in self.ics)) + ']'
 
     def solve_symbolic(self):
-        q = dynamicsymbols(f'q:{self.N}')
-        dq = dynamicsymbols(f'q:{self.N}', level=1)
-        ddq = dynamicsymbols(f'q:{self.N}', level=2)
-        p = dynamicsymbols(f'p:{self.N}')
-        dp = dynamicsymbols(f'p:{self.N}', level=1)
-        l, m, g, t = sp.symbols('l m g t')
+        print("Solving Symbolic Problem... ", end='', flush=True)
+        try:
+            self.numeric_dp = dill.load(open(f"./cache/pypendula_cached_soln_n{self.N}", "rb"))
+            self.numeric_hamiltonian = dill.load(open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
+            print("Done! (Solution Found)")
+        except:
+            q = dynamicsymbols(f'q:{self.N}')
+            dq = dynamicsymbols(f'q:{self.N}', level=1)
+            ddq = dynamicsymbols(f'q:{self.N}', level=2)
+            p = dynamicsymbols(f'p:{self.N}')
+            dp = dynamicsymbols(f'p:{self.N}', level=1)
+            l, m, g, t = sp.symbols('l m g t')
 
-        ###################
-        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
-        for i in range(1, self.N):
-            x.append(x[i - 1] + l * sp.sin(q[i]))
-            y.append(y[i - 1] - l * sp.cos(q[i]))
+            ###################
+            x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
+            for i in range(1, self.N):
+                x.append(x[i - 1] + l * sp.sin(q[i]))
+                y.append(y[i - 1] - l * sp.cos(q[i]))
     
-        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
-        x, y = Matrix(x), Matrix(y)
-        ####################
+            v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
+            x, y = Matrix(x), Matrix(y)
+            ####################
 
-        self.potential = m * g * sum(y)
-        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        self.lagrangian = self.kinetic - self.potential
-        self.lagranges_method = LagrangesMethod(self.lagrangian, q)
-        self.euler_lagrange_eqns = self.lagranges_method.form_lagranges_equations()
+            self.potential = m * g * sum(y)
+            self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+            self.lagrangian = self.kinetic - self.potential
+            self.lagranges_method = LagrangesMethod(self.lagrangian, q)
+            self.euler_lagrange_eqns = self.lagranges_method.form_lagranges_equations()
         
-        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+            self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
         
-        self.eom = sp.simplify(self.lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-        self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
-        self.numeric_dp = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                      [*p, *self.symbolic_dp])
-        dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
+            self.eom = sp.simplify(self.lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+            self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
+            print("Done! (Solution Generated)")
 
-        self.numeric_hamiltonian = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                      self.hamiltonian)
-        dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
+            print("Caching Solution... ", end='', flush=True)
+            self.numeric_dp = sp.utilities.lambdify([t, 
+                                           [*q, *p], 
+                                           m, g, l], 
+                                          [*p, *self.symbolic_dp])
+            dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
+
+            self.numeric_hamiltonian = sp.utilities.lambdify([t, 
+                                           [*q, *p], 
+                                           m, g, l], 
+                                          self.hamiltonian)
+            dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
+            print("Done!")
 
     def solve_numeric(self):
         try:
@@ -137,26 +151,31 @@ class PyPendula:
             self.numeric_hamiltonian = dill.load(open("./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
         except:
             self.solve_symbolic()
-        
+
+        print("Solving Numeric Problem... ", end='', flush=True)
         frames = self.t_f * self.fps
         self.t_eval = np.linspace(0, self.t_f, frames)
         self.n_dp = partial(self.numeric_dp, **self.params)
         self.n_hamiltonian = partial(self.numeric_hamiltonian, **self.params)
         self.soln = solve_ivp(self.n_dp, [0, self.t_f], self.ics, t_eval=self.t_eval)
         self.soln_hamiltonian = self.n_hamiltonian(self.t_eval, self.soln.y)
+        print("Done!")
         return self.soln  # , self.soln_hamiltonian
 
     def simulate(self):
         assert self.N == 3
-
         if self.soln is None:
             self.solve_numeric()
-
+        
+        print("Setting Up Simulation... ", end='', flush=True)
+        
         t, y = self.soln.t, self.soln.y
-        energy = self.soln_hamiltonian
-
-        energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
         q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
+
+        energy = self.soln_hamiltonian
+        energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
+        # fit_a, fit_b = curve_fit(lambda t, a, b: a * t + b, t, energy_loss_percent)
+        # energy_loss_percent_fit = fit_a * t + fit_b
 
         x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
         for i in range(1, 3):
@@ -183,11 +202,14 @@ class PyPendula:
         ax3.set_ylabel(r'Energy Loss [%]')
         ax3.set_xlabel(r'$t$ $[s]$')
 
+        bbox_props = dict(boxstyle='round', alpha=0., facecolor='white')
+        label = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, verticalalignment='top', bbox=bbox_props)
         pin, = ax1.plot(0, 0, 'o', markersize=6, color='black', zorder=10)
         mass0, = ax1.plot([], [], lw=3, color='darkgray')
-        mass1, = ax1.plot([], [], 'o', markersize=12, color='red')
-        mass2, = ax1.plot([], [], 'o', markersize=12, color='blue')
-        mass3, = ax1.plot([], [], 'o', markersize=12, color='green')
+        mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[3]:.6f}$')
+        mass2, = ax1.plot([], [], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[4]:.6f}$')
+        mass3, = ax1.plot([], [], 'o', markersize=12, color='green', label=rf'$q_3(0)={self.ics[2]:.4f}, p_3(0)={self.ics[5]:.6f}$')
+        ax1.legend() 
 
         ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.75)
         ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.75)
@@ -200,7 +222,16 @@ class PyPendula:
         ax3.axhline(y=0, xmin=self.t_eval[0], xmax=self.t_eval[-1], linestyle='--', color='black')
         energy_loss_plot, = ax3.plot([], [], 'o', markersize=6, color='purple', label='Total Energy')    
 
+        frames = self.t_f * self.fps
+        dt = self.t_f / frames
+
         def animate(i):
+            label_text = '\n'.join((
+                rf"$m_1={self.params['m']:.3f}, m_2={self.params['m']:.3f}, m_3={self.params['m']:.3f}$",
+                rf"$l_1={self.params['l']:.3f}, l_2={self.params['l']:.3f}, l_3={self.params['l']:.3f}$",
+                rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
+            ))             
+            label.set_text(label_text)   
             energy_loss_plot.set_data([self.t_eval[i]], [energy_loss_percent[i]])
             mass0.set_data(
                 [0, x[0][i], x[1][i], x[2][i]],
@@ -213,12 +244,9 @@ class PyPendula:
             point3.set_data([q[2][i]], [p[2][i]])
             point2.set_data([q[1][i]], [p[1][i]])
             point1.set_data([q[0][i]], [p[0][i]])
-            return mass0, mass1, mass2, mass3, point1, point2, point3, energy_loss_plot,
+            return mass0, mass1, mass2, mass3, point1, point2, point3, energy_loss_plot, label,
  
-        
-        frames = self.t_f * self.fps
-        dt = self.t_f / frames
-
+        print("Done!")
         anim = animation.FuncAnimation(fig, animate, len(self.t_eval), interval=dt * 1000, blit=True)
         anim.save(
         './resources/pypendula_n3_' + self.ics_tag + '.mp4',
@@ -226,3 +254,35 @@ class PyPendula:
         )
         plt.close()
         return anim
+
+    def show_phase_portrait(self):
+        assert self.N == 3
+
+        if self.soln is None:
+            self.solve_numeric()
+
+        t, y = self.soln.t, self.soln.y
+        q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
+
+        fig = plt.figure(layout="constrained", figsize=(19.2, 10.80))
+        ax = fig.gca()
+
+        ax.set_title('PyPendula-Phase Portrait')
+        ax.set_xlabel(r'$q$ [rad]')
+        ax.set_ylabel(r'$p$ [rad]/[s]')
+
+        ax.plot(q[0], p[0], lw=1.5, color='red', alpha=0.75)
+        ax.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.75)
+        ax.plot(q[2], p[2], lw=1.5, color='green', alpha=0.75)
+        
+        plt.savefig('./resources/pypendula_n3_' + self.ics_tag + '_preview.png')
+        return fig    
+
+def main():
+    p = PyPendula()
+    p.show_phase_portrait()
+    p.simulate()
+
+
+if __name__ == "__main__":
+    main()
