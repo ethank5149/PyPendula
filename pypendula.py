@@ -289,7 +289,7 @@ class PyPendula:
         print("Done!")
         anim = animation.FuncAnimation(fig, animate, len(self.t_eval), interval=dt * 1000, blit=True)
         anim.save(
-        f'./resources/pypendula_n{self.N}_' + self.ics_tag + '.mp4',
+        f'./results/pypendula_n{self.N}_' + self.ics_tag + '.mp4',
         progress_callback = progress_bar
         )
         plt.close()
@@ -357,7 +357,7 @@ class PyPendula:
         ax1.legend() 
         ax3.plot(self.t_eval, energy_loss_percent, '-', lw=1.5, color='purple')
         ax3.axhline(y=0, xmin=self.t_eval[0], xmax=self.t_eval[-1], linestyle='--', color='black')
-        plt.savefig(f'./resources/pypendula_n{self.N}_' + self.ics_tag + '_preview.png')
+        plt.savefig(f'./results/pypendula_n{self.N}_' + self.ics_tag + '_preview.png')
         return fig
 
 
