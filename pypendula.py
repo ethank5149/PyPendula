@@ -99,7 +99,6 @@ class PyPendula:
 
         q = dynamicsymbols(f'q:{self.N}')
         dq = dynamicsymbols(f'q:{self.N}', level=1)
-        # ddq = dynamicsymbols(f'q:{self.N}', level=2)
         p = dynamicsymbols(f'p:{self.N}')
         dp = dynamicsymbols(f'p:{self.N}', level=1)
         l, m, g, t = sp.symbols('l m g t')
