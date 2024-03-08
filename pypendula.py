@@ -41,8 +41,8 @@ class PyPendula:
     def __init__(
             self, 
             N=3, 
-            m=1,
-            l=1 / 3.0,
+            m=None,
+            l=None,
             g=9.807,
             ics = None,
             alpha=3,
@@ -54,7 +54,9 @@ class PyPendula:
         if abs(alpha) < 1: alpha = 1
         if alpha < 0: alpha = -alpha
         if beta < 0: beta = -beta
-
+        if l is None: l = 1. / N
+        if m is None: m = 1. / N
+        
         self.N = N
         self.m = m
         self.l = l

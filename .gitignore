@@ -4,9 +4,9 @@
 /__pycache__
 /ffmpeg
 
-!/results/pypendula_n1_ex_1.mp4
-!/results/pypendula_n1_ex_2.mp4
-!/results/pypendula_n2_ex_1.mp4
-!/results/pypendula_n2_ex_2.mp4
-!/results/pypendula_n3_ex_1.mp4
-!/results/pypendula_n3_ex_2.mp4
+!/results/pypendula_n1_ex1.mp4
+!/results/pypendula_n1_ex2.mp4
+!/results/pypendula_n2_ex1.mp4
+!/results/pypendula_n2_ex2.mp4
+!/results/pypendula_n3_ex1.mp4
+!/results/pypendula_n3_ex2.mp4
