@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 import matplotlib.animation as animation
@@ -47,7 +48,7 @@ class PyPendula:
             ics = None,
             alpha=3,
             beta=128,
-            t_f=10,
+            t_f=15,
             fps=60,
             ):
         
@@ -72,29 +73,29 @@ class PyPendula:
                 'l' : self.l,
             }
         
-        # Default to None until appropriate calculations are made
-        self.potential = None
-        self.kinetic = None
-        self.lagrangian = None
-        self.hamiltonian = None
-        self.soln_hamiltonian = None
-        self.soln = None
-        self.t_eval = None
-        self.n_dp = None
-        self.n_hamiltonian = None
-        self.ics_tag = None
+        # # Default to None until appropriate calculations are made
+        # self.potential = None
+        # self.kinetic = None
+        # self.lagrangian = None
+        # self.hamiltonian = None
+        # self.soln_hamiltonian = None
+        # self.soln = None
+        # self.t_eval = None
+        self.numeric_dp = None
+        self.numeric_hamiltonian = None
+        # self.ics_tag = None
 
-        self.set_ics(ics)
-
-    def set_ics(self, ics=None):
         if ics is None:
-            ics_q = rng.uniform(0, np.pi / self.alpha, size=self.N)
-            ics_p = rng.uniform(0, np.pi / self.beta, size=self.N)
-            self.ics = np.hstack([ics_q, ics_p])
+            self.ics = self.gen_ics()
         else:
             self.ics = ics
-        
+
         self.ics_tag = 'ics=[' + ','.join((f'{ic:.4f}' for ic in self.ics)) + ']'
+
+    def gen_ics(self):
+        ics_q = rng.uniform(0, np.pi / self.alpha, size=self.N)
+        ics_p = rng.uniform(0, np.pi / self.beta, size=self.N)
+        return np.hstack([ics_q, ics_p])       
 
     def solve_symbolic(self):
         print("Solving Symbolic Problem... ", end='', flush=True)
@@ -105,38 +106,35 @@ class PyPendula:
         dp = dynamicsymbols(f'p:{self.N}', level=1)
         l, m, g, t = sp.symbols('l m g t')
 
-        # Translating coordinates for convenience
-        ############################################################################
-        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]                            #
-        for i in range(1, self.N):                                                 #
-            x.append(x[i - 1] + l * sp.sin(q[i]))                                  #
-            y.append(y[i - 1] - l * sp.cos(q[i]))                                  #
-                                                                                   #
-        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)]) #
-        x, y = Matrix(x), Matrix(y)                                                #
-        ############################################################################
+        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
+        for i in range(1, self.N):
+            x.append(x[i - 1] + l * sp.sin(q[i]))
+            y.append(y[i - 1] - l * sp.cos(q[i]))
 
-        self.potential = m * g * sum(y)
-        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        self.lagrangian = self.kinetic - self.potential
-        self.lagranges_method = LagrangesMethod(self.lagrangian, q)
-        self.euler_lagrange_eqns = self.lagranges_method.form_lagranges_equations()
-        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
-        self.eom = sp.simplify(self.lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-        self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
+        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
+        x, y = Matrix(x), Matrix(y)
+        
+        potential = m * g * sum(y)
+        kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+        lagrangian = kinetic - potential
+        lagranges_method = LagrangesMethod(lagrangian, q)
+        euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
+        hamiltonian = sp.simplify(kinetic + potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+        eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+        symbolic_dp = Matrix(list(sp.solve(eom, *dp).values()))
         print("Done!")
 
         print("Caching Solution... ", end='', flush=True)
         self.numeric_dp = sp.utilities.lambdify([t, 
                                        [*q, *p], 
                                        m, g, l], 
-                                      [*p, *self.symbolic_dp])
+                                      [*p, *symbolic_dp])
         dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
 
         self.numeric_hamiltonian = sp.utilities.lambdify([t, 
                                        [*q, *p], 
                                        m, g, l], 
-                                      self.hamiltonian)
+                                      hamiltonian)
         dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
         print("Done!")
 
@@ -153,28 +151,71 @@ class PyPendula:
         self.n_dp = partial(self.numeric_dp, **self.params)
         self.n_hamiltonian = partial(self.numeric_hamiltonian, **self.params)
         self.soln = solve_ivp(self.n_dp, [0, self.t_f], self.ics, t_eval=self.t_eval, method='DOP853')
-        self.soln_hamiltonian = self.n_hamiltonian(self.t_eval, self.soln.y)
-        print("Done!")
-        return self.soln
+        
+        self.t, self.soln_y = self.soln.t, self.soln.y
+        self.energy = self.n_hamiltonian(self.t_eval, self.soln_y)
+        self.percent_energy_loss = 100 * (self.energy - self.energy[0]) / self.energy[0]
 
-    def simulate(self):
-        if self.soln is None:
+        self.q, self.p = np.vsplit(self.soln_y, 2)[0], np.vsplit(self.soln_y, 2)[1]
+        
+        self.x, self.y = [self.params['l'] * np.sin(self.q[0])], [- self.params['l'] * np.cos(self.q[0])]
+        for i in range(1, self.N):
+            self.x.append(self.x[i - 1] + self.params['l'] * np.sin(self.q[i]))
+            self.y.append(self.y[i - 1] - self.params['l'] * np.cos(self.q[i]))
+        
+        self.vx, self.vy = [self.params['l'] * self.p[0] * np.cos(self.q[0])], [self.params['l'] * self.p[0] * np.sin(self.q[0])]
+        for i in range(1, self.N):
+            self.vx.append(self.vx[i - 1] + self.params['l'] * self.p[i] * np.cos(self.q[i]))
+            self.vy.append(self.vy[i - 1] + self.params['l'] * self.p[i] * np.sin(self.q[i]))
+        
+        df = pd.DataFrame({
+            't': self.t,
+            'Energy': self.energy,
+            'PercentEnergyLoss': self.percent_energy_loss,
+            'q1': self.q[0],
+            'q2': self.q[1],
+            'q3': self.q[2],
+            'p1': self.p[0],
+            'p2': self.p[1],
+            'p3': self.p[2],
+            'x1': self.x[0],
+            'x2': self.x[1],
+            'x3': self.x[2],
+            'y1': self.y[0],
+            'y2': self.y[1],
+            'y3': self.y[2],
+            'vx1': self.vx[0],
+            'vx2': self.vx[1],
+            'vx3': self.vx[2],
+            'vy1': self.vy[0],
+            'vy2': self.vy[1],
+            'vy3': self.vy[2],
+            })
+        print("Done!")
+        return df
+
+    def simulate(self,
+                 m=None,
+                 g=None,
+                 l=None
+                 ):
+        
+        if self.numeric_dp or self.numeric_hamiltonian is None:
             self.solve_numeric()
         
         print("Setting Up Simulation... ", end='', flush=True)
         
-        t, y = self.soln.t, self.soln.y
-        q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
+        # t, y = self.soln.t, self.soln.y
+        # q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
 
-        energy = self.soln_hamiltonian
-        energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
-        # fit_a, fit_b = curve_fit(lambda t, a, b: a * t + b, t, energy_loss_percent)
-        # energy_loss_percent_fit = fit_a * t + fit_b
+        # energy = self.soln_hamiltonian
+        # energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
 
-        x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
-        for i in range(1, self.N):
-            x.append(x[i - 1] + self.params['l'] * np.sin(q[i]))
-            y.append(y[i - 1] - self.params['l'] * np.cos(q[i]))
+
+        # x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
+        # for i in range(1, self.N):
+        #     x.append(x[i - 1] + self.params['l'] * np.sin(q[i]))
+        #     y.append(y[i - 1] - self.params['l'] * np.cos(q[i]))
 
         fig = plt.figure(layout="constrained", figsize=(19.2, 10.80))
         gs = GridSpec(2, 2, figure=fig)
@@ -182,8 +223,8 @@ class PyPendula:
         ax2 = fig.add_subplot(gs[0, 1])
         ax1 = fig.add_subplot(gs[:, 0])
 
-        min_x, max_x = min([-self.N * self.params['l'], np.min(x)]), max([self.N * self.params['l'], np.max(x)])
-        min_y, max_y = max([-self.N * self.params['l'], np.min(y)]), max([         self.params['l'], np.max(y)])
+        min_x, max_x = min([-self.N * self.params['l'], np.min(self.x)]), max([self.N * self.params['l'], np.max(self.x)])
+        min_y, max_y = max([-self.N * self.params['l'], np.min(self.y)]), max([         self.params['l'], np.max(self.y)])
         ax1.set_xlim((1.15 * min_x, 1.15 * max_x))
         ax1.set_ylim((1.15 * min_y, 1.15 * max_y))
 
@@ -201,91 +242,63 @@ class PyPendula:
         pin, = ax1.plot(0, 0, 'o', markersize=6, color='black', zorder=10)
         mass0, = ax1.plot([], [], lw=3, color='darkgray')
 
-        if self.N == 3:
-            mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[3]:.6f}$')
-            mass2, = ax1.plot([], [], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[4]:.6f}$')
-            mass3, = ax1.plot([], [], 'o', markersize=12, color='green', label=rf'$q_3(0)={self.ics[2]:.4f}, p_3(0)={self.ics[5]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-            ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.5)
-            ax2.plot(q[2], p[2], lw=1.5, color='green', alpha=0.5)
-            point1, = ax2.plot([], [], 'o', markersize=6, color='red')
-            point2, = ax2.plot([], [], 'o', markersize=6, color='blue')
-            point3, = ax2.plot([], [], 'o', markersize=6, color='green')
-        elif self.N == 2:
-            mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[2]:.6f}$')
-            mass2, = ax1.plot([], [], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[3]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-            ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.5)
-            point1, = ax2.plot([], [], 'o', markersize=6, color='red')
-            point2, = ax2.plot([], [], 'o', markersize=6, color='blue')
-        elif self.N == 1:
-            mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[1]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-            point1, = ax2.plot([], [], 'o', markersize=6, color='red')
-
+        # masses, = [ax1.plot([], [], 'o', markersize=12, label=rf'$q_{i}(0)={self.ics[0]:.4f}, p_{i}(0)={self.ics[3]:.6f}$') for i in range(self.N)]
+        # points, = [ax2.plot([], [], 'o', markersize=6) for i in range(self.N)]
+        # for i in range(self.N):
+        #     ax2.plot(self.q[i], self.p[i], lw=1.5, alpha=0.5)
+            
+        mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[3]:.6f}$')
+        mass2, = ax1.plot([], [], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[4]:.6f}$')
+        mass3, = ax1.plot([], [], 'o', markersize=12, color='green', label=rf'$q_3(0)={self.ics[2]:.4f}, p_3(0)={self.ics[5]:.6f}$')
+        ax2.plot(self.q[0], self.p[0], lw=1.5, color='red', alpha=0.5)
+        ax2.plot(self.q[1], self.p[1], lw=1.5, color='blue', alpha=0.5)
+        ax2.plot(self.q[2], self.p[2], lw=1.5, color='green', alpha=0.5)
+        point1, = ax2.plot([], [], 'o', markersize=6, color='red')
+        point2, = ax2.plot([], [], 'o', markersize=6, color='blue')
+        point3, = ax2.plot([], [], 'o', markersize=6, color='green')
 
         ax1.legend() 
 
-        ax3.plot(self.t_eval, energy_loss_percent, '-', lw=1.5, color='purple')
+        ax3.plot(self.t_eval, self.percent_energy_loss, '-', lw=1.5, color='purple')
         ax3.axhline(y=0, xmin=self.t_eval[0], xmax=self.t_eval[-1], linestyle='--', color='black')
-        energy_loss_plot, = ax3.plot([], [], 'o', markersize=6, color='purple', label='Total Energy')    
+        energy_loss_plot, = ax3.plot([], [], 'o', markersize=6, color='purple', label='Total Energy')
 
         frames = self.t_f * self.fps
         dt = self.t_f / frames
 
         def animate(i):
+            energy_loss_plot.set_data([self.t_eval[i]], [self.percent_energy_loss[i]])
 
-            energy_loss_plot.set_data([self.t_eval[i]], [energy_loss_percent[i]])
+            label_text = '\n'.join((
+                rf"$m={self.params['m']:.3f}, l={self.params['l']:.3f}$",
+                rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
+            ))   
+            label.set_text(label_text)   
 
+            # mass0.set_data(
+            #     [0,].append([self.x[_][i] for _ in range(self.N)]),
+            #     [0,].append([self.y[_][i] for _ in range(self.N)])
+            #     )
+
+            # for _, mass in enumerate(reversed(masses)):
+            #     mass.set_data([self.x[_][i]], [self.y[_][i]])
             
-            if self.N == 3:
-                label_text = '\n'.join((
-                rf"$m_1={self.params['m']:.3f}, m_2={self.params['m']:.3f}, m_3={self.params['m']:.3f}$",
-                rf"$l_1={self.params['l']:.3f}, l_2={self.params['l']:.3f}, l_3={self.params['l']:.3f}$",
-                rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
-            ))             
-                label.set_text(label_text)   
-                mass0.set_data(
-                [0, x[0][i], x[1][i], x[2][i]],
-                [0, y[0][i], y[1][i], y[2][i]]
+            # for _, point in enumerate(reversed(points)):
+            #     point.set_data([self.q[_][i]], [self.p[_][i]])
+
+            # return mass0, *masses, *points, energy_loss_plot, label,
+
+            mass0.set_data(
+                [0, self.x[0][i], self.x[1][i], self.x[2][i]],
+                [0, self.y[0][i], self.y[1][i], self.y[2][i]]
                 )
-                mass3.set_data([x[2][i]], [y[2][i]])
-                mass2.set_data([x[1][i]], [y[1][i]])
-                mass1.set_data([x[0][i]], [y[0][i]])
-                point3.set_data([q[2][i]], [p[2][i]])
-                point2.set_data([q[1][i]], [p[1][i]])
-                point1.set_data([q[0][i]], [p[0][i]])
-                return mass0, mass1, mass2, mass3, point1, point2, point3, energy_loss_plot, label,
-            elif self.N == 2:
-                label_text = '\n'.join((
-                rf"$m_1={self.params['m']:.3f}, m_2={self.params['m']:.3f}$",
-                rf"$l_1={self.params['l']:.3f}, l_2={self.params['l']:.3f}$",
-                rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
-            ))             
-                label.set_text(label_text)   
-                mass0.set_data(
-                [0, x[0][i], x[1][i]],
-                [0, y[0][i], y[1][i]]
-                )
-                mass2.set_data([x[1][i]], [y[1][i]])
-                mass1.set_data([x[0][i]], [y[0][i]])
-                point2.set_data([q[1][i]], [p[1][i]])
-                point1.set_data([q[0][i]], [p[0][i]])
-                return mass0, mass1, mass2, point1, point2, energy_loss_plot, label,
-            elif self.N == 1:
-                label_text = '\n'.join((
-                rf"$m_1={self.params['m']:.3f}$",
-                rf"$l_1={self.params['l']:.3f}$",
-                rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
-            ))             
-                label.set_text(label_text)   
-                mass0.set_data(
-                [0, x[0][i]],
-                [0, y[0][i]]
-                )
-                mass1.set_data([x[0][i]], [y[0][i]])
-                point1.set_data([q[0][i]], [p[0][i]])
-                return mass0, mass1, point1, energy_loss_plot, label,
+            mass3.set_data([self.x[2][i]], [self.y[2][i]])
+            mass2.set_data([self.x[1][i]], [self.y[1][i]])
+            mass1.set_data([self.x[0][i]], [self.y[0][i]])
+            point3.set_data([self.q[2][i]], [self.p[2][i]])
+            point2.set_data([self.q[1][i]], [self.p[1][i]])
+            point1.set_data([self.q[0][i]], [self.p[0][i]])
+            return mass0, mass1, mass2, mass3, point1, point2, point3, energy_loss_plot, label,
  
         print("Done!")
         anim = animation.FuncAnimation(fig, animate, len(self.t_eval), interval=dt * 1000, blit=True)
@@ -296,75 +309,9 @@ class PyPendula:
         plt.close()
         return anim
 
-    def preview(self):
-        if self.soln is None:
-            self.solve_numeric()
-              
-        t, y = self.soln.t, self.soln.y
-        q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
-
-        energy = self.soln_hamiltonian
-        energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
-
-        x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
-        for i in range(1, self.N):
-            x.append(x[i - 1] + self.params['l'] * np.sin(q[i]))
-            y.append(y[i - 1] - self.params['l'] * np.cos(q[i]))
-
-        fig = plt.figure(layout="constrained", figsize=(19.2, 10.80))
-        gs = GridSpec(2, 2, figure=fig)
-        ax3 = fig.add_subplot(gs[1, 1])
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax1 = fig.add_subplot(gs[:, 0])
-
-        min_x, max_x = min([-self.N * self.params['l'], np.min(x)]), max([self.N * self.params['l'], np.max(x)])
-        min_y, max_y = max([-self.N * self.params['l'], np.min(y)]), max([         self.params['l'], np.max(y)])
-        ax1.set_xlim((1.15 * min_x, 1.15 * max_x))
-        ax1.set_ylim((1.15 * min_y, 1.15 * max_y))
-
-        ax1.set_aspect('equal')
-        ax1.set_title('PyPendula-N3\nWritten by: Ethan Knox')
-        ax1.set_xlabel(r'X [m]')
-        ax1.set_ylabel(r'Y [m]')
-        ax2.set_xlabel(r'$q$ [rad]')
-        ax2.set_ylabel(r'$p$ [rad]/[s]')
-        ax3.set_ylabel(r'Energy Loss [%]')
-        ax3.set_xlabel(r'$t$ $[s]$')
-
-        bbox_props = dict(boxstyle='round', alpha=0., facecolor='white')
-        label = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, verticalalignment='top', bbox=bbox_props)
-        pin, = ax1.plot(0, 0, 'o', markersize=6, color='black', zorder=10)
-
-
-        if self.N == 3:
-            mass0, = ax1.plot([0, x[0][0], x[1][0], x[2][0]], [0, y[0][0], y[1][0], y[2][0]], lw=3, color='darkgray')
-            mass1, = ax1.plot(x[0][0], y[0][0], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[3]:.6f}$')
-            mass2, = ax1.plot(x[1][0], y[1][0], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[4]:.6f}$')
-            mass3, = ax1.plot(x[2][0], y[2][0], 'o', markersize=12, color='green', label=rf'$q_3(0)={self.ics[2]:.4f}, p_3(0)={self.ics[5]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-            ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.5)
-            ax2.plot(q[2], p[2], lw=1.5, color='green', alpha=0.5)
-        elif self.N == 2:
-            mass0, = ax1.plot([0, x[0][0], x[1][0]], [0, y[0][0], y[1][0]], lw=3, color='darkgray')
-            mass1, = ax1.plot(x[0][0], y[0][0], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[2]:.6f}$')
-            mass2, = ax1.plot(x[1][0], y[1][0], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[3]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-            ax2.plot(q[1], p[1], lw=1.5, color='blue', alpha=0.5)
-        elif self.N == 1:
-            mass0, = ax1.plot([0, x[0][0]], [0, y[0][0]], lw=3, color='darkgray')
-            ax1.plot(x[0][0], y[0][0], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[1]:.6f}$')
-            ax2.plot(q[0], p[0], lw=1.5, color='red', alpha=0.5)
-
-        ax1.legend() 
-        ax3.plot(self.t_eval, energy_loss_percent, '-', lw=1.5, color='purple')
-        ax3.axhline(y=0, xmin=self.t_eval[0], xmax=self.t_eval[-1], linestyle='--', color='black')
-        plt.savefig(f'./results/pypendula_n{self.N}_' + self.ics_tag + '_preview.png')
-        return fig
-
 
 def main():
     p = PyPendula()
-    p.preview()
     p.simulate()
 
 
