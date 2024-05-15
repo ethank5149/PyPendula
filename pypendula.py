@@ -93,6 +93,47 @@ class PyPendula:
         return np.hstack([ics_q, ics_p])       
 
     def solve_symbolic(self):
+        print("Solving Symbolic Problem... ", end='', flush=True)
+
+        q = dynamicsymbols(f'q:{self.N}')
+        dq = dynamicsymbols(f'q:{self.N}', level=1)
+        p = dynamicsymbols(f'p:{self.N}')
+        dp = dynamicsymbols(f'p:{self.N}', level=1)
+        l, m, g, t = sp.symbols('l m g t')
+
+        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
+        for i in range(1, self.N):
+            x.append(x[i - 1] + l * sp.sin(q[i]))
+            y.append(y[i - 1] - l * sp.cos(q[i]))
+
+        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
+        x, y = Matrix(x), Matrix(y)
+        
+        self.potential = m * g * sum(y)
+        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+        self.lagrangian = sp.simplify(self.kinetic - self.potential)
+        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+        lagranges_method = LagrangesMethod(self.lagrangian, q)
+        euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
+        self.eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+        self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
+        print("Done!")
+
+        print("Caching Solution... ", end='', flush=True)
+        self.numeric_dp = sp.utilities.lambdify([t, 
+                                       [*q, *p], 
+                                       m, g, l], 
+                                      [*p, *self.symbolic_dp])
+        dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
+
+        self.numeric_hamiltonian = sp.utilities.lambdify([t, 
+                                       [*q, *p], 
+                                       m, g, l], 
+                                       self.hamiltonian)
+        dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
+        print("Done!")
+
+    def solve_numeric(self):
         try:
             self.numeric_dp = dill.load(open(f"./cache/pypendula_cached_soln_n{self.N}", "rb"))
             self.numeric_hamiltonian = dill.load(open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
