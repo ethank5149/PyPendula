@@ -114,27 +114,27 @@ class PyPendula:
         v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
         x, y = Matrix(x), Matrix(y)
         
-        potential = m * g * sum(y)
-        kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        lagrangian = kinetic - potential
-        lagranges_method = LagrangesMethod(lagrangian, q)
+        self.potential = m * g * sum(y)
+        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+        self.lagrangian = sp.simplify(self.kinetic - self.potential)
+        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+        lagranges_method = LagrangesMethod(self.lagrangian, q)
         euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
-        hamiltonian = sp.simplify(kinetic + potential).subs([(dq[_], p[_]) for _ in range(self.N)])
-        eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-        symbolic_dp = Matrix(list(sp.solve(eom, *dp).values()))
+        self.eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+        self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
         print("Done!")
 
         print("Caching Solution... ", end='', flush=True)
         self.numeric_dp = sp.utilities.lambdify([t, 
                                        [*q, *p], 
                                        m, g, l], 
-                                      [*p, *symbolic_dp])
+                                      [*p, *self.symbolic_dp])
         dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
 
         self.numeric_hamiltonian = sp.utilities.lambdify([t, 
                                        [*q, *p], 
                                        m, g, l], 
-                                      hamiltonian)
+                                       self.hamiltonian)
         dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
         print("Done!")
 
