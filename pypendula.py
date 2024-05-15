@@ -37,6 +37,9 @@ def progress_bar (
     if iteration == total:
         print()
 
+def dot(a, b):
+    return sum([_a * _b for _a,_b in zip(a, b)])
+
 
 class PyPendula:
     def __init__(
@@ -57,7 +60,7 @@ class PyPendula:
         if beta < 0: beta = -beta
         if l is None: l = 1. / N
         if m is None: m = 1. / N
-        
+
         self.N = N
         self.m = m
         self.l = l
@@ -71,19 +74,11 @@ class PyPendula:
                 'm' : self.m,
                 'g' : self.g,
                 'l' : self.l,
-            }
-        
-        # # Default to None until appropriate calculations are made
-        # self.potential = None
-        # self.kinetic = None
-        # self.lagrangian = None
-        # self.hamiltonian = None
-        # self.soln_hamiltonian = None
-        # self.soln = None
-        # self.t_eval = None
+            }      
+
         self.numeric_dp = None
         self.numeric_hamiltonian = None
-        # self.ics_tag = None
+        self.solved_symbolically = False
 
         if ics is None:
             self.ics = self.gen_ics()
@@ -98,53 +93,55 @@ class PyPendula:
         return np.hstack([ics_q, ics_p])       
 
     def solve_symbolic(self):
-        print("Solving Symbolic Problem... ", end='', flush=True)
-
-        q = dynamicsymbols(f'q:{self.N}')
-        dq = dynamicsymbols(f'q:{self.N}', level=1)
-        p = dynamicsymbols(f'p:{self.N}')
-        dp = dynamicsymbols(f'p:{self.N}', level=1)
-        l, m, g, t = sp.symbols('l m g t')
-
-        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
-        for i in range(1, self.N):
-            x.append(x[i - 1] + l * sp.sin(q[i]))
-            y.append(y[i - 1] - l * sp.cos(q[i]))
-
-        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
-        x, y = Matrix(x), Matrix(y)
-        
-        potential = m * g * sum(y)
-        kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        lagrangian = kinetic - potential
-        lagranges_method = LagrangesMethod(lagrangian, q)
-        euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
-        hamiltonian = sp.simplify(kinetic + potential).subs([(dq[_], p[_]) for _ in range(self.N)])
-        eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-        symbolic_dp = Matrix(list(sp.solve(eom, *dp).values()))
-        print("Done!")
-
-        print("Caching Solution... ", end='', flush=True)
-        self.numeric_dp = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                      [*p, *symbolic_dp])
-        dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
-
-        self.numeric_hamiltonian = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                      hamiltonian)
-        dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
-        print("Done!")
-
-    def solve_numeric(self):
         try:
             self.numeric_dp = dill.load(open(f"./cache/pypendula_cached_soln_n{self.N}", "rb"))
             self.numeric_hamiltonian = dill.load(open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
         except:
-            self.solve_symbolic()
+            print("Solving Symbolic Problem... ", end='', flush=True)
 
+            q = dynamicsymbols(f'q:{self.N}')
+            dq = dynamicsymbols(f'q:{self.N}', level=1)
+            p = dynamicsymbols(f'p:{self.N}')
+            dp = dynamicsymbols(f'p:{self.N}', level=1)
+            l, m, g, t = sp.symbols('l m g t')
+
+            x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
+            for i in range(1, self.N):
+                x.append(x[i - 1] + l * sp.sin(q[i]))
+                y.append(y[i - 1] - l * sp.cos(q[i]))
+
+            v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
+            x, y = Matrix(x), Matrix(y)
+        
+            potential = m * g * sum(y)
+            kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+            lagrangian = kinetic - potential
+            lagranges_method = LagrangesMethod(lagrangian, q)
+            euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
+            hamiltonian = sp.simplify(kinetic + potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+            eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+            symbolic_dp = Matrix(list(sp.solve(eom, *dp).values()))
+            print("Done!")
+
+            print("Caching Solution... ", end='', flush=True)
+            self.numeric_dp = sp.utilities.lambdify([t, 
+                                           [*q, *p], 
+                                           m, g, l], 
+                                          [*p, *symbolic_dp])
+            dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
+
+            self.numeric_hamiltonian = sp.utilities.lambdify([t, 
+                                           [*q, *p], 
+                                           m, g, l], 
+                                          hamiltonian)
+            dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
+            self.solved_symbolically = True
+            print("Done!")
+
+    def solve_numeric(self):
+        if not self.solved_symbolically:
+            self.solve_symbolic()
+        
         print("Solving Numeric Problem... ", end='', flush=True)
         frames = self.t_f * self.fps
         self.t_eval = np.linspace(0, self.t_f, frames)
@@ -205,18 +202,6 @@ class PyPendula:
         
         print("Setting Up Simulation... ", end='', flush=True)
         
-        # t, y = self.soln.t, self.soln.y
-        # q, p = np.vsplit(y, 2)[0], np.vsplit(y, 2)[1]
-
-        # energy = self.soln_hamiltonian
-        # energy_loss_percent = 100 * (energy - energy[0]) / energy[0]
-
-
-        # x, y = [self.params['l'] * np.sin(q[0])], [- self.params['l'] * np.cos(q[0])]
-        # for i in range(1, self.N):
-        #     x.append(x[i - 1] + self.params['l'] * np.sin(q[i]))
-        #     y.append(y[i - 1] - self.params['l'] * np.cos(q[i]))
-
         fig = plt.figure(layout="constrained", figsize=(19.2, 10.80))
         gs = GridSpec(2, 2, figure=fig)
         ax3 = fig.add_subplot(gs[1, 1])
@@ -241,12 +226,7 @@ class PyPendula:
         label = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, verticalalignment='top', bbox=bbox_props)
         pin, = ax1.plot(0, 0, 'o', markersize=6, color='black', zorder=10)
         mass0, = ax1.plot([], [], lw=3, color='darkgray')
-
-        # masses, = [ax1.plot([], [], 'o', markersize=12, label=rf'$q_{i}(0)={self.ics[0]:.4f}, p_{i}(0)={self.ics[3]:.6f}$') for i in range(self.N)]
-        # points, = [ax2.plot([], [], 'o', markersize=6) for i in range(self.N)]
-        # for i in range(self.N):
-        #     ax2.plot(self.q[i], self.p[i], lw=1.5, alpha=0.5)
-            
+           
         mass1, = ax1.plot([], [], 'o', markersize=12, color='red', label=rf'$q_1(0)={self.ics[0]:.4f}, p_1(0)={self.ics[3]:.6f}$')
         mass2, = ax1.plot([], [], 'o', markersize=12, color='blue', label=rf'$q_2(0)={self.ics[1]:.4f}, p_2(0)={self.ics[4]:.6f}$')
         mass3, = ax1.plot([], [], 'o', markersize=12, color='green', label=rf'$q_3(0)={self.ics[2]:.4f}, p_3(0)={self.ics[5]:.6f}$')
@@ -274,19 +254,6 @@ class PyPendula:
                 rf"$g={self.params['g']:.3f}, t={i * dt:.1f}$"
             ))   
             label.set_text(label_text)   
-
-            # mass0.set_data(
-            #     [0,].append([self.x[_][i] for _ in range(self.N)]),
-            #     [0,].append([self.y[_][i] for _ in range(self.N)])
-            #     )
-
-            # for _, mass in enumerate(reversed(masses)):
-            #     mass.set_data([self.x[_][i]], [self.y[_][i]])
-            
-            # for _, point in enumerate(reversed(points)):
-            #     point.set_data([self.q[_][i]], [self.p[_][i]])
-
-            # return mass0, *masses, *points, energy_loss_plot, label,
 
             mass0.set_data(
                 [0, self.x[0][i], self.x[1][i], self.x[2][i]],
