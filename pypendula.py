@@ -41,6 +41,10 @@ def dot(a, b):
     return sum([_a * _b for _a,_b in zip(a, b)])
 
 
+def poincare_obj_func(t, y):
+    return y[0]
+
+
 class PyPendula:
     def __init__(
             self, 
@@ -53,6 +57,7 @@ class PyPendula:
             beta=128,
             t_f=15,
             fps=60,
+            plot_poincare = True,
             ):
         
         if abs(alpha) < 1: alpha = 1
@@ -69,6 +74,7 @@ class PyPendula:
         self.beta = beta
         self.t_f = t_f
         self.fps = fps
+        self.plot_poincare = plot_poincare
 
         self.params = {
                 'm' : self.m,
@@ -78,6 +84,7 @@ class PyPendula:
 
         self.numeric_dp = None
         self.numeric_hamiltonian = None
+        self.poincare = None
         self.solved_symbolically = False
 
         if ics is None:
@@ -90,50 +97,34 @@ class PyPendula:
     def gen_ics(self):
         ics_q = rng.uniform(0, np.pi / self.alpha, size=self.N)
         ics_p = rng.uniform(0, np.pi / self.beta, size=self.N)
-        return np.hstack([ics_q, ics_p])       
+        return np.hstack([ics_q, ics_p])
+    
+    def gen_eq_ics(self):
+        if self.N == 3: choice = np.array([
+            np.pi / 2 * np.array([1, 1, 1, 0, 0, 0]),
+            np.pi / 2 * np.array([1, 1, -1, 0, 0, 0]),
+            np.pi / 2 * np.array([1, -1, 1, 0, 0, 0]),
+            np.pi / 2 * np.array([-1, 1, 1, 0, 0, 0]),
+            np.pi / 2 * np.array([1, -1, -1, 0, 0, 0]),
+            np.pi / 2 * np.array([-1, 1, -1, 0, 0, 0]),
+            np.pi / 2 * np.array([-1, -1, 1, 0, 0, 0]),
+            np.pi / 2 * np.array([-1, -1, -1, 0, 0, 0])
+            ])
+        if self.N == 2: choice = np.array([
+            np.pi / 2 * np.array([1, 1, 0, 0]),
+            np.pi / 2 * np.array([1, -1, 0, 0]),
+            np.pi / 2 * np.array([-1, 1, 0, 0]),
+            np.pi / 2 * np.array([-1, -1, 0, 0])
+            ])
+        if self.N == 1: choice = np.array([
+            np.pi / 2 * np.array([1, 0]),
+            np.pi / 2 * np.array([-1, 0])
+            ])
+
+        i = np.random.choice(range(len(choice)))
+        return choice[i]  
 
     def solve_symbolic(self):
-        print("Solving Symbolic Problem... ", end='', flush=True)
-
-        q = dynamicsymbols(f'q:{self.N}')
-        dq = dynamicsymbols(f'q:{self.N}', level=1)
-        p = dynamicsymbols(f'p:{self.N}')
-        dp = dynamicsymbols(f'p:{self.N}', level=1)
-        l, m, g, t = sp.symbols('l m g t')
-
-        x, y = [l * sp.sin(q[0])], [- l * sp.cos(q[0])]
-        for i in range(1, self.N):
-            x.append(x[i - 1] + l * sp.sin(q[i]))
-            y.append(y[i - 1] - l * sp.cos(q[i]))
-
-        v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
-        x, y = Matrix(x), Matrix(y)
-        
-        self.potential = m * g * sum(y)
-        self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-        self.lagrangian = sp.simplify(self.kinetic - self.potential)
-        self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
-        lagranges_method = LagrangesMethod(self.lagrangian, q)
-        euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
-        self.eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-        self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
-        print("Done!")
-
-        print("Caching Solution... ", end='', flush=True)
-        self.numeric_dp = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                      [*p, *self.symbolic_dp])
-        dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
-
-        self.numeric_hamiltonian = sp.utilities.lambdify([t, 
-                                       [*q, *p], 
-                                       m, g, l], 
-                                       self.hamiltonian)
-        dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
-        print("Done!")
-
-    def solve_numeric(self):
         try:
             self.numeric_dp = dill.load(open(f"./cache/pypendula_cached_soln_n{self.N}", "rb"))
             self.numeric_hamiltonian = dill.load(open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "rb"))
@@ -154,30 +145,31 @@ class PyPendula:
             v_sqr = Matrix([_x.diff(t) ** 2 + _y.diff(t) ** 2 for _x,_y in zip(x, y)])
             x, y = Matrix(x), Matrix(y)
         
-            potential = m * g * sum(y)
-            kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
-            lagrangian = kinetic - potential
-            lagranges_method = LagrangesMethod(lagrangian, q)
-            euler_lagrange_eqns = lagranges_method.form_lagranges_equations()
-            hamiltonian = sp.simplify(kinetic + potential).subs([(dq[_], p[_]) for _ in range(self.N)])
-            eom = sp.simplify(lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
-            symbolic_dp = Matrix(list(sp.solve(eom, *dp).values()))
+            self.potential = m * g * sum(y)
+            self.kinetic = sp.Rational(1, 2) * m * sum(v_sqr)
+            self.lagrangian = sp.simplify(self.kinetic - self.potential)
+            self.hamiltonian = sp.simplify(self.kinetic + self.potential).subs([(dq[_], p[_]) for _ in range(self.N)])
+            self.lagranges_method = LagrangesMethod(self.lagrangian, q)
+            euler_lagrange_eqns = self.lagranges_method.form_lagranges_equations()
+            self.eom = sp.simplify(self.lagranges_method.eom.subs([(dq[_], p[_]) for _ in range(self.N)]))
+            self.symbolic_dp = Matrix(list(sp.solve(self.eom, *dp).values()))
             print("Done!")
 
             print("Caching Solution... ", end='', flush=True)
             self.numeric_dp = sp.utilities.lambdify([t, 
                                            [*q, *p], 
                                            m, g, l], 
-                                          [*p, *symbolic_dp])
+                                          [*p, *self.symbolic_dp])
             dill.dump(self.numeric_dp, open(f"./cache/pypendula_cached_soln_n{self.N}", "wb"))
 
             self.numeric_hamiltonian = sp.utilities.lambdify([t, 
                                            [*q, *p], 
                                            m, g, l], 
-                                          hamiltonian)
+                                           self.hamiltonian)
             dill.dump(self.numeric_hamiltonian, open(f"./cache/pypendula_cached_hamiltonian_n{self.N}", "wb"))
             self.solved_symbolically = True
             print("Done!")
+
 
     def solve_numeric(self):
         if not self.solved_symbolically:
@@ -188,8 +180,13 @@ class PyPendula:
         self.t_eval = np.linspace(0, self.t_f, frames)
         self.n_dp = partial(self.numeric_dp, **self.params)
         self.n_hamiltonian = partial(self.numeric_hamiltonian, **self.params)
-        self.soln = solve_ivp(self.n_dp, [0, self.t_f], self.ics, t_eval=self.t_eval, method='DOP853')
+        self.soln = solve_ivp(self.n_dp, [0, self.t_f], self.ics, t_eval=self.t_eval, method='DOP853',
+                              events=poincare_obj_func if self.plot_poincare == True else None)
         
+        self.poincare = self.soln.y_events
+        self.poincare_q = self.poincare[0][:, 2::2 * self.N]
+        self.poincare_p = self.poincare[0][:, (2 * self.N - 1)::2 * self.N]
+
         self.t, self.soln_y = self.soln.t, self.soln.y
         self.energy = self.n_hamiltonian(self.t_eval, self.soln_y)
         self.percent_energy_loss = 100 * (self.energy - self.energy[0]) / self.energy[0]
@@ -212,25 +209,42 @@ class PyPendula:
             'PercentEnergyLoss': self.percent_energy_loss,
             'q1': self.q[0],
             'q2': self.q[1],
-            'q3': self.q[2],
+            'q3': self.q[2] if self.N == 3 else None,
             'p1': self.p[0],
             'p2': self.p[1],
-            'p3': self.p[2],
+            'p3': self.p[2] if self.N == 3 else None,
             'x1': self.x[0],
             'x2': self.x[1],
-            'x3': self.x[2],
+            'x3': self.x[2] if self.N == 3 else None,
             'y1': self.y[0],
             'y2': self.y[1],
-            'y3': self.y[2],
+            'y3': self.y[2] if self.N == 3 else None,
             'vx1': self.vx[0],
             'vx2': self.vx[1],
-            'vx3': self.vx[2],
+            'vx3': self.vx[2] if self.N == 3 else None,
             'vy1': self.vy[0],
             'vy2': self.vy[1],
-            'vy3': self.vy[2],
+            'vy3': self.vy[2] if self.N == 3 else None,
             })
         print("Done!")
         return df
+
+
+    def plot_poincare_section(self):
+        
+        if self.poincare is None:
+            self.solve_numeric()
+                
+        fig, ax = plt.subplots(1, 1, layout="constrained", figsize=(19.2, 10.80))
+
+        ax.set_title('PyPendula Poincare Section')
+        ax.set_xlabel(r'$q$ [rad]')
+        ax.set_ylabel(r'$p$ [rad]/[s]')
+        ax.scatter(self.poincare_q, self.poincare_p)  # , lw=1.5, color='red', alpha=0.5)
+        plt.savefig(f'./results/pypendula_n{self.N}_poincare_section_' + self.ics_tag + '.png')
+        plt.close()
+        return
+
 
     def simulate(self,
                  m=None,
